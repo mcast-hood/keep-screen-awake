@@ -3,10 +3,9 @@
 package transport
 
 import (
-	"bytes"
+	"bufio"
 	"encoding/json"
 	"fmt"
-	"io"
 	"time"
 
 	"github.com/Microsoft/go-winio"
@@ -32,28 +31,27 @@ func (c *PipeClient) Send(req Request) (Response, error) {
 	}
 	defer conn.Close()
 
+	// Write newline-delimited JSON request.
 	data, err := json.Marshal(req)
 	if err != nil {
 		return Response{}, fmt.Errorf("pipe client: marshal request: %w", err)
 	}
-
+	data = append(data, '\n')
 	if _, err := conn.Write(data); err != nil {
 		return Response{}, fmt.Errorf("pipe client: write: %w", err)
 	}
 
-	// Signal end of write so server can read all bytes.
-	if tc, ok := conn.(interface{ CloseWrite() error }); ok {
-		_ = tc.CloseWrite()
+	// Read one newline-delimited JSON response.
+	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			return Response{}, fmt.Errorf("pipe client: read response: %w", err)
+		}
+		return Response{}, fmt.Errorf("pipe client: empty response")
 	}
-
-	buf, err := io.ReadAll(conn)
-	if err != nil {
-		return Response{}, fmt.Errorf("pipe client: read: %w", err)
-	}
-	buf = bytes.TrimRight(buf, "\n")
 
 	var resp Response
-	if err := json.Unmarshal(buf, &resp); err != nil {
+	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
 		return Response{}, fmt.Errorf("pipe client: unmarshal response: %w", err)
 	}
 	return resp, nil

@@ -3,6 +3,7 @@
 package transport
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -63,14 +64,16 @@ func (s *PipeServer) Serve(ctx context.Context, handler HandlerFunc) error {
 func handleConn(conn net.Conn, handler HandlerFunc) {
 	defer conn.Close()
 
-	data, err := io.ReadAll(conn)
-	if err != nil {
-		log.Printf("pipe server: read: %v", err)
+	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		if err := scanner.Err(); err != nil {
+			log.Printf("pipe server: read: %v", err)
+		}
 		return
 	}
 
 	var req Request
-	if err := json.Unmarshal(data, &req); err != nil {
+	if err := json.Unmarshal(scanner.Bytes(), &req); err != nil {
 		resp := Response{OK: false, Error: fmt.Sprintf("bad request: %v", err)}
 		writeResponse(conn, resp)
 		return
