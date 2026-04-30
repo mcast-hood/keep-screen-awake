@@ -1,0 +1,39 @@
+# keep-screen-awake — configuration reference
+# Copy this file to config.yaml next to the daemon binary.
+
+# ── Mode ─────────────────────────────────────────────────────────────────────
+#
+# always   — sleep prevention is active whenever the service is running.
+# toggle   — service runs permanently but only prevents sleep when enabled via
+#            `ksa on` / `ksa off`. Starts enabled on first launch.
+# schedule — only prevents sleep during the configured time windows below.
+#
+mode: always
+
+# ── Schedule (used only when mode: schedule) ──────────────────────────────────
+#
+# Each window defines a start time, end time, and a list of active days.
+# Times are in 24-hour HH:MM format (local machine time).
+# Days: Mon Tue Wed Thu Fri Sat Sun  (case-insensitive, any prefix works)
+#
+schedule:
+  - start: "09:00"
+    end:   "18:00"
+    days:  ["Mon", "Tue", "Wed", "Thu", "Fri"]
+
+# ── Display-only mode ────────────────────────────────────────────────────────
+#
+# false (default) — prevent both display sleep AND system sleep.
+# true            — only prevent the display from sleeping; system may still sleep.
+#
+display_only: false
+
+# ── IPC ───────────────────────────────────────────────────────────────────────
+ipc:
+  pipe_name: "keep-screen-awake"   # Windows named pipe  \\.\pipe\keep-screen-awake
+  http_port:  9877                  # macOS HTTP port      127.0.0.1:9877
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+log:
+  level: "info"    # debug | info | warn | error
+  file:  ""        # empty = stderr; set a path to log to a file

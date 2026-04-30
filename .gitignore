@@ -1,0 +1,20 @@
+# Go
+go/bin/
+go/*.exe
+
+# .NET
+dotnet/**/bin/
+dotnet/**/obj/
+dotnet/publish/
+
+# Config (keep example, ignore real one)
+config.yaml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.user
