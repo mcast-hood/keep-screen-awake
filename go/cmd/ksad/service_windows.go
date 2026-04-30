@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/sys/windows/registry"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 
@@ -93,28 +96,33 @@ func maybeRunAsService() {
 	os.Exit(0)
 }
 
-// addServiceCommands wires install/uninstall/start/stop sub-commands.
+// addServiceCommands wires install/uninstall/start/stop/add-to-path sub-commands.
 func addServiceCommands(root *cobra.Command) {
 	root.AddCommand(
 		&cobra.Command{
 			Use:   "install",
-			Short: "Install the Windows service",
+			Short: "Install the Windows service (requires Administrator)",
 			RunE:  serviceInstall,
 		},
 		&cobra.Command{
 			Use:   "uninstall",
-			Short: "Uninstall the Windows service",
+			Short: "Uninstall the Windows service (requires Administrator)",
 			RunE:  serviceUninstall,
 		},
 		&cobra.Command{
 			Use:   "start",
-			Short: "Start the Windows service",
+			Short: "Start the Windows service (requires Administrator)",
 			RunE:  serviceStart,
 		},
 		&cobra.Command{
 			Use:   "stop",
-			Short: "Stop the Windows service",
+			Short: "Stop the Windows service (requires Administrator)",
 			RunE:  serviceStop,
+		},
+		&cobra.Command{
+			Use:   "add-to-path",
+			Short: "Add the ksad/ksa bin directory to the current user PATH",
+			RunE:  serviceAddToPath,
 		},
 	)
 }
@@ -154,7 +162,61 @@ func serviceInstall(_ *cobra.Command, _ []string) error {
 	}
 	defer s.Close()
 
-	fmt.Printf("Service %q installed.\n", serviceName)
+	binDir := filepath.Dir(exePath)
+	fmt.Printf("Service %q installed.\n\n", serviceName)
+	fmt.Println("Next steps:")
+	fmt.Printf("  1. Ensure config.yaml exists next to the binary:\n")
+	fmt.Printf("       %s\\config.yaml\n", binDir)
+	fmt.Printf("     (copy config.example.yaml from the repo as a starting point)\n\n")
+	fmt.Printf("  2. Start the service:\n")
+	fmt.Printf("       ksad.exe start\n\n")
+	fmt.Printf("  3. Add ksa to your PATH so you can run it from any terminal:\n")
+	fmt.Printf("       ksad.exe add-to-path\n")
+	fmt.Printf("     Then open a new terminal and run: ksa status\n")
+	return nil
+}
+
+// serviceAddToPath adds the directory containing ksad.exe to the current user's
+// persistent PATH via the Windows registry (HKCU\Environment).
+// Does not require Administrator privileges.
+func serviceAddToPath(_ *cobra.Command, _ []string) error {
+	exePath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("get executable path: %w", err)
+	}
+	binDir := filepath.Dir(exePath)
+
+	k, err := registry.OpenKey(registry.CURRENT_USER, `Environment`,
+		registry.QUERY_VALUE|registry.SET_VALUE)
+	if err != nil {
+		return fmt.Errorf("open HKCU\\Environment: %w", err)
+	}
+	defer k.Close()
+
+	current, _, err := k.GetStringValue("Path")
+	if err != nil && err != registry.ErrNotExist {
+		return fmt.Errorf("read user PATH: %w", err)
+	}
+
+	for _, p := range filepath.SplitList(current) {
+		if strings.EqualFold(filepath.Clean(p), filepath.Clean(binDir)) {
+			fmt.Printf("%s is already on your PATH — nothing to do.\n", binDir)
+			return nil
+		}
+	}
+
+	newPath := current
+	if newPath != "" {
+		newPath += ";"
+	}
+	newPath += binDir
+
+	if err := k.SetStringValue("Path", newPath); err != nil {
+		return fmt.Errorf("update user PATH: %w", err)
+	}
+
+	fmt.Printf("Added to user PATH: %s\n", binDir)
+	fmt.Println("Open a new terminal tab for this to take effect.")
 	return nil
 }
 

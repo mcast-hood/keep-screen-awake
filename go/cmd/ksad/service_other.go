@@ -78,6 +78,21 @@ func addServiceCommands(root *cobra.Command) {
 			Short: "Stop the launchd agent",
 			RunE:  launchdStop,
 		},
+		&cobra.Command{
+			Use:   "add-to-path",
+			Short: "Print the PATH export line to add ksa to your shell (macOS)",
+			RunE: func(cmd *cobra.Command, args []string) error {
+				exe, err := os.Executable()
+				if err != nil {
+					return err
+				}
+				binDir := filepath.Dir(exe)
+				fmt.Printf("Add the following line to your ~/.zshrc or ~/.bash_profile:\n\n")
+				fmt.Printf("  export PATH=\"$PATH:%s\"\n\n", binDir)
+				fmt.Println("Then run: source ~/.zshrc")
+				return nil
+			},
+		},
 	)
 }
 

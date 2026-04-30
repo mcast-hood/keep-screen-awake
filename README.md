@@ -6,7 +6,7 @@ Two complete implementations: **Go** and **C#/.NET 10**.
 
 ## Features
 
-- Runs as a **Windows Service** or **macOS launchd agent** — starts automatically on login
+- Runs as a **Windows Service** or **macOS launchd agent** — starts automatically on login/boot
 - Three modes: **always-on**, **toggle** (CLI on/off), or **schedule** (time windows)
 - `ksa` CLI: `on`, `off`, `status`, `mode`, `logs`
 - **IPC**: Named Pipe on Windows, HTTP REST on macOS
@@ -16,11 +16,24 @@ Two complete implementations: **Go** and **C#/.NET 10**.
 
 ## Modes
 
-| Mode       | Behaviour                                                      |
-|------------|----------------------------------------------------------------|
-| `always`   | Sleep prevention is active the entire time the service runs   |
+| Mode       | Behaviour |
+|------------|-----------|
+| `always`   | Sleep prevention is active the entire time the service runs |
 | `toggle`   | Service runs always, but only prevents sleep when you run `ksa on` |
-| `schedule` | Only prevents sleep during configured time windows            |
+| `schedule` | Only prevents sleep during configured time windows |
+
+---
+
+## `display_only` explained
+
+Controlled by the `display_only` field in `config.yaml`:
+
+| Value | What is blocked |
+|-------|----------------|
+| `false` (default) | Display **and** system — screen stays on, machine never sleeps or hibernates |
+| `true` | Display only — screen stays on, but the system itself may still sleep |
+
+Use `false` for the typical "watching a video / running a process" case. Use `true` if you only need the screen on but are okay with the CPU going idle (e.g. laptop on battery).
 
 ---
 
@@ -29,6 +42,8 @@ Two complete implementations: **Go** and **C#/.NET 10**.
 ```
 keep-screen-awake/
 ├── go/                      Go implementation
+│   ├── build.ps1            Windows build script (no make required)
+│   ├── Makefile             macOS / Linux build
 │   ├── cmd/
 │   │   ├── ksad/            daemon binary
 │   │   └── ksa/             CLI binary
@@ -46,9 +61,28 @@ keep-screen-awake/
 
 ---
 
+## Prerequisites
+
+### Go implementation
+
+| Requirement | Notes |
+|-------------|-------|
+| Go 1.23+ | `go version` to check |
+| `make` | **Optional** — macOS/Linux only. Windows uses `build.ps1` instead |
+| Administrator shell | Required only for `ksad install / start / stop / uninstall` |
+
+### C#/.NET implementation
+
+| Requirement | Notes |
+|-------------|-------|
+| .NET 10 SDK | `dotnet --version` to check |
+| Administrator shell | Required only for `sc.exe create / start / stop` |
+
+---
+
 ## Configuration
 
-Copy `config.example.yaml` to `config.yaml` and place it next to the daemon binary.
+Copy `config.example.yaml` to `config.yaml` and place it **next to the daemon binary**.
 
 ```yaml
 # always | toggle | schedule
@@ -74,79 +108,93 @@ log:
 
 ## Go Implementation
 
-### Requirements
-
-- Go 1.23+
-
 ### Build
 
-```bash
+**Windows** (no `make` needed):
+```powershell
 cd go
-
-# Windows binaries
-make build
-
-# macOS binaries
-make build-darwin
+.\build.ps1            # produces bin\ksad.exe and bin\ksa.exe
 ```
 
-Output lands in `go/bin/`.
+**macOS / Linux**:
+```bash
+cd go
+make build             # produces bin/ksad and bin/ksa
+```
+
+**macOS cross-compile from Windows**:
+```powershell
+.\build.ps1 -Darwin    # produces bin\ksad-darwin and bin\ksa-darwin
+```
 
 ### Install & run (Windows)
 
+> All `ksad` service commands require an **Administrator** PowerShell prompt.
+
 ```powershell
-# Add bin to PATH (once, then reopen terminal)
-[Environment]::SetEnvironmentVariable(
-    'PATH',
-    [Environment]::GetEnvironmentVariable('PATH','User') + ';' + (Resolve-Path .\bin),
-    'User'
-)
+cd go
 
-# Install as a Windows Service (run as Administrator)
-.\bin\ksad.exe install
+# 1. Build
+.\build.ps1
 
-# Start / stop
-.\bin\ksad.exe start
-.\bin\ksad.exe stop
+# 2. Drop a config file next to the binary
+Copy-Item ..\config.example.yaml bin\config.yaml
+# Edit bin\config.yaml as needed (default mode: always is fine to start)
 
-# Remove
-.\bin\ksad.exe uninstall
+# 3. Install and start the Windows Service
+bin\ksad.exe install
+bin\ksad.exe start
+
+# 4. Add ksa to your PATH (does NOT require Administrator)
+#    Run this once, then open a new terminal
+bin\ksad.exe add-to-path
+```
+
+After step 4, open a **new terminal** and:
+```powershell
+ksa status
 ```
 
 ### Install & run (macOS)
 
 ```bash
-# Add bin to PATH
-echo 'export PATH="$PATH:'"$(pwd)/bin"'"' >> ~/.zshrc
+cd go
 
-# Install as a launchd user agent
-./bin/ksad-darwin install
+# 1. Build
+make build
 
-# Start / stop
-./bin/ksad-darwin start
-./bin/ksad-darwin stop
+# 2. Drop a config file next to the binary
+cp ../config.example.yaml bin/config.yaml
 
-# Remove
-./bin/ksad-darwin uninstall
+# 3. Install as a launchd user agent (starts on login)
+./bin/ksad install
 
-# Run in the foreground for debugging
-./bin/ksad-darwin run
+# 4. Start
+./bin/ksad start
+
+# 5. Add ksa to PATH (print the export line)
+./bin/ksad add-to-path
 ```
 
-### Build (test only)
+### Service management
 
-```bash
+```powershell
+ksad.exe start      # start the service
+ksad.exe stop       # stop the service
+ksad.exe uninstall  # remove the service
+```
+
+### Test
+
+```powershell
 cd go
-make test
+.\build.ps1 -Test
+# or on macOS: make test
 ```
 
 ---
 
 ## C#/.NET 10 Implementation
-
-### Requirements
-
-- .NET 10 SDK
 
 ### Build
 
@@ -157,26 +205,30 @@ dotnet build -c Release
 
 ### Publish self-contained (Windows)
 
-```bash
-dotnet publish KeepScreenAwake.Service/KeepScreenAwake.Service.csproj \
-  -c Release -r win-x64 --self-contained -o publish/service
+```powershell
+dotnet publish KeepScreenAwake.Service/KeepScreenAwake.Service.csproj `
+  -c Release -r win-x64 --self-contained -o publish\service
 
-dotnet publish KeepScreenAwake.Cli/KeepScreenAwake.Cli.csproj \
-  -c Release -r win-x64 --self-contained -o publish/cli
+dotnet publish KeepScreenAwake.Cli/KeepScreenAwake.Cli.csproj `
+  -c Release -r win-x64 --self-contained -o publish\cli
 ```
 
 ### Install & run (Windows)
 
 ```powershell
-# Install as a Windows Service (run as Administrator)
-sc.exe create KeepScreenAwake binPath="C:\path\to\publish\service\KeepScreenAwake.Service.exe"
+# Copy config next to the service binary
+Copy-Item ..\config.example.yaml publish\service\config.yaml
+
+# Install as a Windows Service (Administrator required)
+sc.exe create KeepScreenAwake binPath="$PWD\publish\service\KeepScreenAwake.Service.exe"
 sc.exe description KeepScreenAwake "Prevents display and system sleep."
 sc.exe start KeepScreenAwake
+
+# Add ksa CLI to PATH
+$ksaDir = "$PWD\publish\cli"
+[Environment]::SetEnvironmentVariable('PATH', $env:PATH + ";$ksaDir", 'User')
+# Open a new terminal, then: ksa status
 ```
-
-### Install & run (macOS)
-
-Run `KeepScreenAwake.Service` as a foreground process or wrap it in a launchd plist.
 
 ### Test
 
@@ -190,13 +242,13 @@ dotnet test
 ## CLI (`ksa`)
 
 ```bash
-# Show current status (mode, awake active, next schedule window)
+# Show current status (mode, awake active, display_only)
 ksa status
 
-# Enable sleep prevention (toggle mode)
+# Enable sleep prevention (useful in toggle mode)
 ksa on
 
-# Disable sleep prevention (toggle mode)
+# Disable sleep prevention
 ksa off
 
 # Switch mode at runtime
@@ -204,7 +256,7 @@ ksa mode always
 ksa mode toggle
 ksa mode schedule
 
-# Show recent log lines
+# Show recent log lines from the daemon
 ksa logs
 ksa logs --lines 100
 ```
@@ -217,29 +269,24 @@ ksa logs --lines 100
 
 Pipe: `\\.\pipe\keep-screen-awake`
 
-Each connection: one newline-delimited JSON request → one JSON response.
+Each connection carries one newline-delimited JSON request and one JSON response.
 
 ```json
-// Requests
 {"command":"status"}
 {"command":"on"}
 {"command":"off"}
 {"command":"mode","mode":"schedule"}
 {"command":"logs","lines":50}
-
-// Response
-{"ok":true,"data":{...}}
-{"ok":false,"error":"unknown command"}
 ```
 
 ### macOS — REST HTTP
 
 Base URL: `http://127.0.0.1:9877`
 
-| Method | Path       | Notes                   |
-|--------|------------|-------------------------|
-| POST   | /command   | JSON `Request` body     |
-| GET    | /status    | Convenience status check|
+| Method | Path     | Notes |
+|--------|----------|-------|
+| POST   | /command | JSON `Request` body |
+| GET    | /status  | Convenience status check |
 
 ---
 
@@ -251,16 +298,75 @@ Base URL: `http://127.0.0.1:9877`
 │                                                 │
 │  ┌───────────────┐  ┌──────────────────────┐   │
 │  │  AwakeManager │  │     IPC Server       │   │
-│  │  (Win/macOS)  │  │  Pipe / HTTP         │   │
+│  │  Win/macOS    │  │  Pipe (Win) / HTTP   │   │
 │  └───────┬───────┘  └──────────┬───────────┘   │
-│          │                     │               │
-│          └─────────────────────┘               │
-│                  Mode Engine                    │
-│           always / toggle / schedule            │
+│          └──────── Mode Engine ┘                │
+│             always / toggle / schedule          │
 └─────────────────────────────────────────────────┘
               ▲ Named Pipe / HTTP ▲
 ┌─────────────┴──────────────────┴──────────────┐
 │  ksa  (CLI)                                   │
 │  status  │  on  │  off  │  mode  │  logs      │
 └────────────────────────────────────────────────┘
+```
+
+---
+
+## Troubleshooting
+
+### `ksa` is not recognized / CommandNotFoundException
+
+`ksa.exe` is not on your `PATH`. Fix:
+
+```powershell
+# Permanently add to user PATH (no Administrator required)
+bin\ksad.exe add-to-path
+```
+
+Then **open a new terminal**. The change only applies to new shells.
+
+Alternatively, add the path manually:
+```powershell
+[Environment]::SetEnvironmentVariable(
+    'PATH',
+    [Environment]::GetEnvironmentVariable('PATH','User') + ';C:\Repos\keep-screen-awake\go\bin',
+    'User'
+)
+```
+
+---
+
+### `make: command not found` on Windows
+
+Windows does not ship with `make`. Use the PowerShell build script instead:
+
+```powershell
+cd go
+.\build.ps1          # build
+.\build.ps1 -Test    # run tests
+.\build.ps1 -Clean   # remove bin\
+```
+
+---
+
+### Service fails to start / exits immediately
+
+1. Check that `config.yaml` exists **next to `ksad.exe`** (in the `bin\` folder).
+2. Check the Windows Event Viewer → Windows Logs → Application for errors from `KeepScreenAwake`.
+3. Test in the foreground first (no Administrator needed):
+   ```powershell
+   bin\ksad.exe run
+   ```
+
+---
+
+### `ksa status` hangs and never returns
+
+This was a bug in early builds where the named pipe used `io.ReadAll` (blocking until EOF) instead of newline-delimited reads. It is fixed in the current version. If you have an old binary, rebuild:
+
+```powershell
+cd go
+.\build.ps1
+bin\ksad.exe stop
+bin\ksad.exe start
 ```
