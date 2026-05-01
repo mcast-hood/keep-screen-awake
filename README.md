@@ -124,7 +124,7 @@ make build             # produces bin/ksad and bin/ksa
 
 **macOS cross-compile from Windows**:
 ```powershell
-.\build.ps1 -Darwin    # produces bin\ksad-darwin and bin\ksa-darwin
+.\build.ps1 -Darwin    # produces bin\darwin\ksad and bin\darwin\ksa
 ```
 
 ### Install & run (Windows)

@@ -34,10 +34,11 @@ New-Item -ItemType Directory -Force -Path bin | Out-Null
 if ($Darwin) {
     $env:GOOS   = "darwin"
     $env:GOARCH = "arm64"
-    go build -o bin/ksad-darwin ./cmd/ksad
-    go build -o bin/ksa-darwin  ./cmd/ksa
+    New-Item -ItemType Directory -Force -Path bin/darwin | Out-Null
+    go build -o bin/darwin/ksad ./cmd/ksad
+    go build -o bin/darwin/ksa  ./cmd/ksa
     Remove-Item Env:GOOS, Env:GOARCH -ErrorAction SilentlyContinue
-    Write-Host "Built: bin/ksad-darwin  bin/ksa-darwin" -ForegroundColor Green
+    Write-Host "Built: bin/darwin/ksad  bin/darwin/ksa" -ForegroundColor Green
 } else {
     go build -o bin/ksad.exe ./cmd/ksad
     go build -o bin/ksa.exe  ./cmd/ksa
